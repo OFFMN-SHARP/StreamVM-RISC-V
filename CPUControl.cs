@@ -17,6 +17,7 @@ namespace StreamVM_RISC_V
                 uint inst = Memory.ReadUInt32(Registers.Instance.PC);
                 Registers.Instance.PC += 4;
                 CodeDictionary.Execute(inst);
+                Outputer.TryFlush();
             }
         }
     }

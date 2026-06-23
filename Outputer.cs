@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO.Pipes;
 using System.Linq;
 using System.Reflection.PortableExecutable;
 using System.Text;
@@ -75,6 +76,68 @@ namespace StreamVM_RISC_V
                     break;
             }
             MessageSequence.Add(DisplayMessage.ToString());
+        }
+        public static string VMOutputPipeName = "stdout";
+        public static string VMInputPipeName = "stdin";
+        public static NamedPipeClientStream _outputPipe;  // 向父进程发送转义序列//这两个必须存在
+        public static NamedPipeClientStream _inputPipe;   // 从父进程接收控制指令
+        public static int SendThreshold = 16;          // 触发发送的阈值
+        private static bool _isSending = false;        // 防止并发发送
+
+        // 在 CPU 循环中定期调用此方法（非阻塞）
+        public static void TryFlush()
+        {
+            // 如果正在发送或消息太少，则跳过
+            if (_isSending || MessageSequence.Count < SendThreshold)
+                return;
+
+            // 取出前 N 条（或全部，如果不足 N 条？按你的逻辑，低于阈值不发送）
+            int takeCount = MessageSequence.Count; // 或者取 Math.Min(Count, SendThreshold * 2) 等
+                                                   // 但你说“如果相等或小于则 clear 否则 remove 固定值”，所以：
+                                                   // 如果 Count == SendThreshold，则取全部并清空；如果大于，则取 SendThreshold 条并移除。
+            int count = MessageSequence.Count;
+            List<string> batch;
+            if (count == SendThreshold)
+            {
+                batch = new List<string>(MessageSequence);
+                MessageSequence.Clear();
+            }
+            else // count > SendThreshold
+            {
+                batch = MessageSequence.Take(SendThreshold).ToList();
+                MessageSequence.RemoveRange(0, SendThreshold);
+            }
+
+            // 异步发送（fire-and-forget）
+            _ = SendBatchAsync(batch);
+        }
+        private static async Task SendBatchAsync(List<string> batch)
+        {
+            _isSending = true;
+            try
+            {
+                string combined = string.Join("\n", batch);
+                byte[] data = Encoding.UTF8.GetBytes(combined + "\n");
+                if (_outputPipe != null && _outputPipe.IsConnected)
+                {
+                    await _outputPipe.WriteAsync(data, 0, data.Length);
+                    await _outputPipe.FlushAsync();
+                }
+                else
+                {
+                    // 降级：直接输出到控制台（开发调试）
+                    Console.WriteLine(combined);
+                }
+            }
+            catch (Exception ex)
+            {
+                // 可记录日志，但不影响 CPU 执行
+                Console.Error.WriteLine($"发送失败：{ex.Message}");
+            }
+            finally
+            {
+                _isSending = false;
+            }
         }
     }
     public class ModeSet

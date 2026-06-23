@@ -4,7 +4,19 @@
     {
         static void Main(string[] args)
         {
-            Console.WriteLine("Hello, World!");
+            if (args.Length < 2)
+            {
+                Outputer.VMOutputPipeName = "stdout"; 
+                Outputer.VMInputPipeName = "stdin";
+            }else
+            {
+                Outputer.VMOutputPipeName= args[0];
+                Outputer.VMInputPipeName = args[1];
+            }
+            if (args.Length > 2)
+            {
+                string[] VMARG = args.Skip(2).ToArray();
+            }
         }
     }
 }
